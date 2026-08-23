@@ -27,6 +27,7 @@ use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
 require_once \dirname(__DIR__) . '/src/Api/HealthController.php';
+require_once \dirname(__DIR__) . '/src/Api/Profile.php';
 require_once \dirname(__DIR__) . '/src/Api/ProfileController.php';
 require_once \dirname(__DIR__) . '/src/Console/StatusCommand.php';
 require_once \dirname(__DIR__) . '/src/Configuration/ApplicationConfiguration.php';
@@ -34,6 +35,16 @@ require_once \dirname(__DIR__) . '/src/Service/BuildIdentity.php';
 
 final class SkeletonE2ETest extends TestCase
 {
+    public function testSerializedDtoLivesInItsOwnPsr4File(): void
+    {
+        $path = \dirname(__DIR__) . '/src/Api/Profile.php';
+
+        self::assertFileExists($path);
+        self::assertTrue(class_exists(\App\Api\Profile::class, false));
+        self::assertSame(\App\Api\Profile::class, (new \ReflectionClass(\App\Api\Profile::class))->getName());
+        self::assertSame($path, (new \ReflectionClass(\App\Api\Profile::class))->getFileName());
+    }
+
     public function testCompiledSkeletonServesHealthThroughTheRealFpmStack(): void
     {
         $sink = new SkeletonSink();
