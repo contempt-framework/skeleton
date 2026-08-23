@@ -41,8 +41,8 @@ final class SkeletonE2ETest extends TestCase
 
         self::assertFileExists($path);
         self::assertTrue(class_exists(\App\Api\Profile::class, false));
-        self::assertSame(\App\Api\Profile::class, (new \ReflectionClass(\App\Api\Profile::class))->getName());
-        self::assertSame($path, (new \ReflectionClass(\App\Api\Profile::class))->getFileName());
+        self::assertSame(\App\Api\Profile::class, new \ReflectionClass(\App\Api\Profile::class)->getName());
+        self::assertSame($path, new \ReflectionClass(\App\Api\Profile::class)->getFileName());
     }
 
     public function testCompiledSkeletonServesHealthThroughTheRealFpmStack(): void

@@ -5,12 +5,12 @@
     "license": "MIT",
     "homepage": "https://github.com/contempt-framework/skeleton",
     "require": {
-        "contempt/starter-api": "self.version",
+        "contempt/starter-api": "^1.0",
         "php": "^8.5"
     },
     "require-dev": {
-        "contempt/phpstan": "self.version",
-        "contempt/testing": "self.version",
+        "contempt/phpstan": "^1.0",
+        "contempt/testing": "^1.0",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.0"
     },
