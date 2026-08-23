@@ -8,7 +8,6 @@ use App\Configuration\ApplicationConfiguration;
 use App\Service\BuildIdentity;
 use Contempt\Attribute\Controller;
 use Contempt\Attribute\Get;
-use Contempt\Http\Request;
 
 #[Controller]
 final readonly class HealthController
@@ -20,7 +19,34 @@ final readonly class HealthController
 
     /** @return array{status: string, application: string, framework: string} */
     #[Get('/health', name: 'health')]
-    public function __invoke(Request $request): array
+    public function __invoke(): array
+    {
+        return $this->response();
+    }
+
+    /** @return array{status: string, application: string, framework: string} */
+    #[Get('/health/live', name: 'health.liveness')]
+    public function liveness(): array
+    {
+        return $this->response();
+    }
+
+    /** @return array{status: string, application: string, framework: string} */
+    #[Get('/health/ready', name: 'health.readiness')]
+    public function readiness(): array
+    {
+        return $this->response();
+    }
+
+    /** @return array{status: string, application: string, framework: string} */
+    #[Get('/health/startup', name: 'health.startup')]
+    public function startup(): array
+    {
+        return $this->response();
+    }
+
+    /** @return array{status: string, application: string, framework: string} */
+    private function response(): array
     {
         return [
             'status' => 'up',

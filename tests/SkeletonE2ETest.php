@@ -6,8 +6,6 @@ namespace App\Tests;
 
 use Contempt\Config\ConfigurationProvider;
 use Contempt\Config\RuntimeConfiguration;
-use Contempt\Console\ConsoleRuntime;
-use Contempt\Core\Environment;
 use Contempt\Core\Time\SystemClock;
 use Contempt\DevTools\Build\BuildPlan;
 use Contempt\Http\Fpm\EmissionTarget;
@@ -23,29 +21,25 @@ use Contempt\Kernel\Error\ErrorReporter;
 use Contempt\Kernel\Error\ErrorSink;
 use Contempt\Kernel\Error\UnhandledError;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Output\BufferedOutput;
 
 require_once \dirname(__DIR__) . '/src/Api/HealthController.php';
-require_once \dirname(__DIR__) . '/src/Api/Profile.php';
-require_once \dirname(__DIR__) . '/src/Api/ProfileController.php';
-require_once \dirname(__DIR__) . '/src/Console/StatusCommand.php';
 require_once \dirname(__DIR__) . '/src/Configuration/ApplicationConfiguration.php';
 require_once \dirname(__DIR__) . '/src/Service/BuildIdentity.php';
 
 final class SkeletonE2ETest extends TestCase
 {
-    public function testSerializedDtoLivesInItsOwnPsr4File(): void
+    public static function setUpBeforeClass(): void
     {
-        $path = \dirname(__DIR__) . '/src/Api/Profile.php';
+        $plan = require \dirname(__DIR__) . '/config/build.php';
 
-        self::assertFileExists($path);
-        self::assertTrue(class_exists(\App\Api\Profile::class, false));
-        self::assertSame(\App\Api\Profile::class, new \ReflectionClass(\App\Api\Profile::class)->getName());
-        self::assertSame($path, new \ReflectionClass(\App\Api\Profile::class)->getFileName());
+        if (!$plan instanceof BuildPlan) {
+            self::fail('Skeleton build configuration is invalid.');
+        }
+
+        $plan->execute(new \DateTimeImmutable('2026-01-01T00:00:00+00:00'));
     }
 
-    public function testCompiledSkeletonServesHealthThroughTheRealFpmStack(): void
+    public function testFreshDebugSkeletonServesTheFrameworkQuickstartThroughTheRealFpmStack(): void
     {
         $sink = new SkeletonSink();
         $target = new SkeletonTarget();
@@ -59,33 +53,62 @@ final class SkeletonE2ETest extends TestCase
 
         $exit = $driver->run($runtime, new SkeletonRequestSource([
             'REQUEST_METHOD' => 'GET',
-            'REQUEST_URI' => '/health',
-            'HTTP_HOST' => 'api.example.test',
+            'REQUEST_URI' => '/',
+            'HTTP_HOST' => 'app.example.test',
             'HTTPS' => 'on',
         ]));
 
         self::assertSame(0, $exit);
         self::assertSame([], $sink->errors);
         self::assertContains('status:200', $target->events);
-        self::assertContains('header:content-type:application/json; charset=utf-8:replace', $target->events);
-        self::assertContains('write:{"status":"up","application":"contempt-skeleton","framework":"1.0.0"}', $target->events);
+        self::assertContains('header:content-type:text/html; charset=utf-8:replace', $target->events);
+        self::assertTrue($target->containsWrite('Your compiled application is ready.'));
+        self::assertTrue($target->containsWrite("#[Get('/')]"));
     }
 
-    public function testCompiledSkeletonRunsItsRealConsoleCommand(): void
+    public function testQuickstartHeadResponseHasNoBodyAndPreservesTheGetRepresentationLength(): void
     {
         $sink = new SkeletonSink();
-        $output = new BufferedOutput();
+        $target = new SkeletonTarget();
         $errors = $this->errors($sink);
-
-        $exit = new ConsoleRuntime($errors)->run(
+        $exit = new FpmRuntime($errors, new ServerRequestFactory(), new ResponseEmitter($target))->run(
             $this->runtime($errors),
-            new ArrayInput(['command' => 'app:status']),
-            $output,
+            new SkeletonRequestSource([
+                'REQUEST_METHOD' => 'HEAD',
+                'REQUEST_URI' => '/',
+            ]),
         );
 
         self::assertSame(0, $exit);
-        self::assertSame("Contempt skeleton is ready.\n", $output->fetch());
         self::assertSame([], $sink->errors);
+        self::assertContains('status:200', $target->events);
+        self::assertTrue($target->containsHeader('content-length'));
+        self::assertFalse($target->containsWrite('Contempt'));
+    }
+
+    public function testProductionStartupLivenessAndReadinessProbesRequireASuccessfullyBootedRuntime(): void
+    {
+        foreach (['/health/startup', '/health/live', '/health/ready'] as $path) {
+            $sink = new SkeletonSink();
+            $target = new SkeletonTarget();
+            $errors = $this->errors($sink);
+            $exit = new FpmRuntime($errors, new ServerRequestFactory(), new ResponseEmitter($target))->run(
+                $this->runtime($errors),
+                new SkeletonRequestSource([
+                    'REQUEST_METHOD' => 'GET',
+                    'REQUEST_URI' => $path,
+                ]),
+            );
+
+            self::assertSame(0, $exit, $path);
+            self::assertSame([], $sink->errors, $path);
+            self::assertContains('status:200', $target->events, $path);
+            self::assertContains(
+                'write:{"status":"up","application":"contempt-skeleton","framework":"1.0.0"}',
+                $target->events,
+                $path,
+            );
+        }
     }
 
     public function testSkeletonOperatorCanExplainAndExportTheVerifiedCompiledGraph(): void
@@ -98,57 +121,6 @@ final class SkeletonE2ETest extends TestCase
         self::assertSame(0, $graphExit, $graphError);
         self::assertStringStartsWith("flowchart LR\n", $graphOutput);
         self::assertStringNotContainsString('configuration values', strtolower($graphOutput));
-    }
-
-    public function testCompiledSkeletonStrictlyDeserializesAndSerializesABodyDto(): void
-    {
-        $sink = new SkeletonSink();
-        $target = new SkeletonTarget();
-        $errors = $this->errors($sink);
-        $driver = new FpmRuntime($errors, new ServerRequestFactory(), new ResponseEmitter($target));
-
-        $exit = $driver->run(
-            $this->runtime($errors),
-            new SkeletonRequestSource([
-                'REQUEST_METHOD' => 'POST',
-                'REQUEST_URI' => '/profiles',
-                'CONTENT_TYPE' => 'application/json',
-            ], '{"identifier":7,"name":"Ada"}'),
-        );
-
-        self::assertSame(0, $exit);
-        self::assertSame([], $sink->errors);
-        self::assertContains('status:200', $target->events);
-        self::assertContains('write:{"identifier":7,"name":"Ada"}', $target->events);
-
-        $invalidTarget = new SkeletonTarget();
-        $invalidExit = new FpmRuntime($errors, new ServerRequestFactory(), new ResponseEmitter($invalidTarget))->run(
-            $this->runtime($errors),
-            new SkeletonRequestSource([
-                'REQUEST_METHOD' => 'POST',
-                'REQUEST_URI' => '/profiles',
-                'CONTENT_TYPE' => 'application/json',
-            ], '{"identifier":"7","name":"Ada","admin":true}'),
-        );
-
-        self::assertSame(0, $invalidExit);
-        self::assertContains('status:400', $invalidTarget->events);
-        self::assertContains('write:{"type":"about:blank","title":"Bad Request","status":400}', $invalidTarget->events);
-        self::assertSame([], $sink->errors);
-
-        $constraintTarget = new SkeletonTarget();
-        $constraintExit = new FpmRuntime($errors, new ServerRequestFactory(), new ResponseEmitter($constraintTarget))->run(
-            $this->runtime($errors),
-            new SkeletonRequestSource([
-                'REQUEST_METHOD' => 'POST',
-                'REQUEST_URI' => '/profiles',
-                'CONTENT_TYPE' => 'application/json',
-            ], '{"identifier":0,"name":" "}'),
-        );
-
-        self::assertSame(0, $constraintExit);
-        self::assertContains('status:400', $constraintTarget->events);
-        self::assertSame([], $sink->errors);
     }
 
     public function testPhpFailureDuringArtifactLoadingIsCaughtReportedAndSanitizedByFpmBoundary(): void
@@ -184,10 +156,10 @@ final class SkeletonE2ETest extends TestCase
         self::assertNotContains('write:artifact bootstrap secret=must-not-leak', $target->events);
     }
 
-    public function testCommittedBuildWasGeneratedFromCurrentSourcesAndDependencyLock(): void
+    public function testActiveBuildWasGeneratedFromCurrentSourcesAndDependencyLock(): void
     {
         $applicationRoot = \dirname(__DIR__);
-        $workspaceRoot = \dirname($applicationRoot, 2);
+        $projectRoot = is_file($applicationRoot . '/composer.lock') ? $applicationRoot : \dirname($applicationRoot, 2);
         $buildRoot = $applicationRoot . '/var/contempt/build';
         $generation = trim((string) file_get_contents($buildRoot . '/current'));
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D', $generation);
@@ -206,7 +178,7 @@ final class SkeletonE2ETest extends TestCase
             self::fail('Generated build manifest hash field is missing.');
         }
 
-        self::assertSame('sha256:' . hash_file('sha256', $workspaceRoot . '/composer.lock'), $composerLockHash);
+        self::assertSame('sha256:' . hash_file('sha256', $projectRoot . '/composer.lock'), $composerLockHash);
         self::assertSame($plan->specification->graphHash, $graphHash);
         self::assertSame($plan->specification->configSchemaHash, $configSchemaHash);
         self::assertNotSame('sha256:' . str_repeat('0', 64), $composerLockHash);
@@ -214,10 +186,18 @@ final class SkeletonE2ETest extends TestCase
 
     private function loader(): CompiledRuntimeLoader
     {
+        $applicationRoot = \dirname(__DIR__);
+        $projectRoot = is_file($applicationRoot . '/composer.lock') ? $applicationRoot : \dirname($applicationRoot, 2);
+        $configuration = require $applicationRoot . '/config/runtime.php';
+
+        if (!$configuration instanceof RuntimeConfiguration) {
+            self::fail('Skeleton runtime configuration is invalid.');
+        }
+
         return new CompiledRuntimeLoader(
-            \dirname(__DIR__) . '/var/contempt/build',
-            Environment::Production,
-            composerLockPath: \dirname(__DIR__, 3) . '/composer.lock',
+            $applicationRoot . '/var/contempt/build',
+            $configuration->environment,
+            composerLockPath: $projectRoot . '/composer.lock',
         );
     }
 
@@ -252,11 +232,22 @@ final class SkeletonE2ETest extends TestCase
     private function command(array $arguments): array
     {
         $pipes = [];
+        $applicationRoot = \dirname(__DIR__);
+        $autoload = $applicationRoot . '/vendor/autoload.php';
+
+        if (!is_file($autoload)) {
+            $autoload = \dirname(__DIR__, 3) . '/vendor/autoload.php';
+        }
+
+        if (!is_file($autoload) || is_link($autoload) || !is_readable($autoload)) {
+            self::fail('Could not locate a safe Composer autoloader for the skeleton CLI subprocess.');
+        }
+
         $process = proc_open(
-            [PHP_BINARY, \dirname(__DIR__) . '/bin/contempt', ...$arguments],
+            [PHP_BINARY, '-d', 'auto_prepend_file=' . $autoload, $applicationRoot . '/bin/contempt', ...$arguments],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
-            \dirname(__DIR__),
+            $applicationRoot,
         );
 
         if (!\is_resource($process) || !isset($pipes[1], $pipes[2]) || !\is_resource($pipes[1]) || !\is_resource($pipes[2])) {
@@ -316,6 +307,28 @@ final class SkeletonTarget implements EmissionTarget
     public function write(string $bytes): void
     {
         $this->events[] = 'write:' . $bytes;
+    }
+
+    public function containsWrite(string $fragment): bool
+    {
+        foreach ($this->events as $event) {
+            if (str_starts_with($event, 'write:') && str_contains($event, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function containsHeader(string $name): bool
+    {
+        foreach ($this->events as $event) {
+            if (str_starts_with($event, 'header:' . strtolower($name) . ':')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 

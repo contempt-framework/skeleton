@@ -29,10 +29,8 @@ jobs:
           composer config minimum-stability dev
           composer config prefer-stable true
       - uses: ramsey/composer-install@v3
-      - name: Static analysis
-        run: composer run analyse
-
-      - name: Tests
-        run: composer run test
-      - name: Dependency audit
-        run: composer audit --abandoned=report
+      - name: Build, analyse, test and audit
+        env:
+          APP_ENV: prod
+          CONTEMPT_LOAD_DOTENV: '0'
+        run: composer run qa

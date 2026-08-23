@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.vscode
+.env
+.env.*
+!.env.dist
+auth.json
+coverage
+tests
+var
+vendor

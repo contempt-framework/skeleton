@@ -2,62 +2,47 @@
 
 declare(strict_types=1);
 
-use Contempt\Config\ConfigurationProvider;
-use Contempt\Config\RuntimeConfiguration;
+use App\Kernel\ApplicationBootstrap;
 use Contempt\Contracts\Runtime\Runtime;
-use Contempt\Core\Time\SystemClock;
 use Contempt\Http\Fpm\FpmRuntime;
 use Contempt\Http\Fpm\NativeEmissionTarget;
 use Contempt\Http\Fpm\NativeRequestSource;
 use Contempt\Http\Fpm\ResponseEmitter;
 use Contempt\Http\Fpm\ServerRequestFactory;
-use Contempt\Kernel\Artifact\CompiledRuntimeLoader;
-use Contempt\Kernel\Error\ErrorHandler;
-use Contempt\Kernel\Error\ErrorHandlerConfiguration;
-use Contempt\Kernel\Error\ErrorReporter;
-use Contempt\Kernel\Error\NativeEmergencyOutput;
-use Contempt\Kernel\Error\NativeErrorLogSink;
 
-$autoload = dirname(__DIR__) . '/vendor/autoload.php';
+$applicationRoot = dirname(__DIR__);
+$autoload = $applicationRoot . '/vendor/autoload.php';
 
-if (!is_file($autoload)) {
-    $autoload = dirname(__DIR__, 3) . '/vendor/autoload.php';
+if (is_file($autoload) && !is_link($autoload) && is_readable($autoload)) {
+    require $autoload;
+} elseif (!class_exists(ApplicationBootstrap::class)) {
+    error_log('Contempt bootstrap failed: Composer autoload is unavailable.');
+    http_response_code(500);
+    exit(1);
 }
 
-require $autoload;
+$errors = ApplicationBootstrap::productionErrors();
+$bootstrapErrors = $errors->install();
 
-$composerLock = dirname(__DIR__) . '/composer.lock';
+try {
+    $exitCode = new FpmRuntime(
+        $errors,
+        new ServerRequestFactory(),
+        new ResponseEmitter(new NativeEmissionTarget()),
+    )->run(
+        static function () use ($applicationRoot, $errors): Runtime {
+            $bootstrap = require $applicationRoot . '/config/bootstrap.php';
 
-if (!is_file($composerLock)) {
-    $composerLock = dirname(__DIR__, 3) . '/composer.lock';
+            if (!$bootstrap instanceof ApplicationBootstrap) {
+                throw new \LogicException('config/bootstrap.php must return ApplicationBootstrap.');
+            }
+
+            return $bootstrap->runtime($errors);
+        },
+        new NativeRequestSource(),
+    );
+} finally {
+    $bootstrapErrors->close();
 }
 
-$errors = new ErrorHandler(
-    ErrorHandlerConfiguration::production(),
-    new NativeErrorLogSink(),
-    new NativeEmergencyOutput(),
-    new SystemClock(),
-);
-exit(new FpmRuntime(
-    $errors,
-    new ServerRequestFactory(),
-    new ResponseEmitter(new NativeEmissionTarget()),
-)->run(
-    static function () use ($composerLock, $errors): Runtime {
-        $configuration = require dirname(__DIR__) . '/config/runtime.php';
-
-        if (!$configuration instanceof RuntimeConfiguration) {
-            throw new LogicException('config/runtime.php must return RuntimeConfiguration.');
-        }
-
-        return new CompiledRuntimeLoader(
-            buildDirectory: dirname(__DIR__) . '/var/contempt/build',
-            environment: $configuration->environment,
-            composerLockPath: $composerLock,
-        )->load(runtimeServices: [
-            ConfigurationProvider::class => $configuration->provider,
-            ErrorReporter::class => $errors,
-        ]);
-    },
-    new NativeRequestSource(),
-));
+exit($exitCode);

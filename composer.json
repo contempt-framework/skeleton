@@ -1,16 +1,19 @@
 {
     "name": "contempt/skeleton",
-    "description": "Minimal Contempt application skeleton. Created with composer create-project.",
+    "description": "Minimal Contempt project recommended for creating bare-bones applications.",
     "type": "project",
     "license": "MIT",
     "homepage": "https://github.com/contempt-framework/skeleton",
     "require": {
-        "contempt/starter-api": "^1.0",
+        "contempt/composer-plugin": "^1.0",
+        "contempt/config": "^1.0",
+        "contempt/devtools": "^1.0",
         "php": "^8.5"
     },
     "require-dev": {
         "contempt/phpstan": "^1.0",
         "contempt/testing": "^1.0",
+        "friendsofphp/php-cs-fixer": "^3.95",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.0"
     },
@@ -28,16 +31,33 @@
         "allow-plugins": {
             "contempt/composer-plugin": true
         },
-        "sort-packages": true
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "preferred-install": {
+            "*": "dist"
+        },
+        "process-timeout": 300
     },
     "scripts": {
         "build": "php bin/contempt build",
         "analyse": "phpstan analyse --memory-limit=1G --no-progress",
-        "test": "phpunit",
-        "qa": [
+        "audit": "composer audit --abandoned=report",
+        "cs": "php-cs-fixer fix --diff",
+        "cs:check": "php-cs-fixer fix --dry-run --diff",
+        "manifest:validate": "composer validate --strict --no-check-publish",
+        "serve": [
             "@build",
+            "php -S 127.0.0.1:8080 -t public public/index.php"
+        ],
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-text --coverage-clover=coverage/clover.xml",
+        "qa": [
+            "@manifest:validate",
+            "@build",
+            "@cs:check",
             "@analyse",
-            "@test"
+            "@test",
+            "@audit"
         ]
     },
     "minimum-stability": "stable",

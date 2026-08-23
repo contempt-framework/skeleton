@@ -1,0 +1,29 @@
+name: contempt-application
+
+services:
+  php:
+    build:
+      context: .
+      target: runtime
+    environment:
+      APP_ENV: prod
+      CONTEMPT_LOAD_DOTENV: '0'
+    init: true
+    read_only: true
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16m
+
+  web:
+    build:
+      context: .
+      target: web
+    depends_on:
+      - php
+    ports:
+      - '8080:8080'
+    read_only: true
+    restart: unless-stopped
+    tmpfs:
+      - /var/cache/nginx:noexec,nosuid,size=8m
+      - /var/run:noexec,nosuid,size=1m

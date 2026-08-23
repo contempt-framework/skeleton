@@ -22,6 +22,7 @@ $buildDirectory = $projectRoot === $applicationRoot
     ? 'var/contempt/build'
     : 'packages/skeleton/var/contempt/build';
 $configHash = SourceFingerprint::hash($applicationRoot, [
+    'config/bootstrap.php',
     'config/build.php',
     'config/runtime.php',
     'config/services.php',
