@@ -1,0 +1,45 @@
+{
+    "name": "contempt/skeleton",
+    "description": "Minimal Contempt application skeleton. Created with composer create-project.",
+    "type": "project",
+    "license": "MIT",
+    "homepage": "https://github.com/contempt-framework/skeleton",
+    "require": {
+        "contempt/starter-api": "self.version",
+        "php": "^8.5"
+    },
+    "require-dev": {
+        "contempt/phpstan": "self.version",
+        "contempt/testing": "self.version",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "App\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "contempt/composer-plugin": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "build": "php bin/contempt build",
+        "analyse": "phpstan analyse --memory-limit=1G --no-progress",
+        "test": "phpunit",
+        "qa": [
+            "@build",
+            "@analyse",
+            "@test"
+        ]
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

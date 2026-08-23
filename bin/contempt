@@ -1,0 +1,103 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Contempt\Config\ConfigurationProvider;
+use Contempt\Config\RuntimeConfiguration;
+use Contempt\Console\ConsoleRuntime;
+use Contempt\Core\Time\SystemClock;
+use Contempt\DevTools\Build\BuildPlan;
+use Contempt\DevTools\Console\ExplainCommand;
+use Contempt\DevTools\Console\GraphCommand;
+use Contempt\Kernel\Artifact\CompiledRuntimeLoader;
+use Contempt\Kernel\Error\ErrorHandler;
+use Contempt\Kernel\Error\ErrorHandlerConfiguration;
+use Contempt\Kernel\Error\ErrorReporter;
+use Contempt\Kernel\Error\NativeEmergencyOutput;
+use Contempt\Kernel\Error\NativeErrorLogSink;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+$autoload = dirname(__DIR__) . '/vendor/autoload.php';
+
+if (!is_file($autoload)) {
+    $autoload = dirname(__DIR__, 3) . '/vendor/autoload.php';
+}
+
+require $autoload;
+
+$composerLock = dirname(__DIR__) . '/composer.lock';
+
+if (!is_file($composerLock)) {
+    $composerLock = dirname(__DIR__, 3) . '/composer.lock';
+}
+
+$errors = new ErrorHandler(
+    ErrorHandlerConfiguration::production(),
+    new NativeErrorLogSink(),
+    new NativeEmergencyOutput(),
+    new SystemClock(),
+);
+if (($argv[1] ?? null) === 'build') {
+    $registration = $errors->install();
+
+    try {
+        $plan = require dirname(__DIR__) . '/config/build.php';
+
+        if (!$plan instanceof BuildPlan) {
+            throw new \LogicException('config/build.php must return a BuildPlan.');
+        }
+
+        $manifest = $plan->execute();
+        fwrite(STDOUT, 'Built production runtime ' . $manifest->fingerprint() . PHP_EOL);
+        exit(0);
+    } catch (\Throwable $failure) {
+        $errors->handleException($failure);
+        fwrite(STDERR, 'Build failed.' . PHP_EOL);
+        exit(1);
+    } finally {
+        $registration->close();
+    }
+}
+
+if (in_array($argv[1] ?? null, ['explain', 'graph'], true)) {
+    $registration = $errors->install();
+
+    try {
+        $application = new Application('Contempt DevTools', '1.0.0');
+        $application->setAutoExit(false);
+        $application->setCatchExceptions(false);
+        $application->addCommand(new ExplainCommand(dirname(__DIR__) . '/var/contempt/build'));
+        $application->addCommand(new GraphCommand(dirname(__DIR__) . '/var/contempt/build'));
+        exit($application->run(new ArgvInput(), new ConsoleOutput()));
+    } catch (\Throwable $failure) {
+        $errors->handleException($failure);
+        fwrite(STDERR, 'Developer command failed.' . PHP_EOL);
+        exit(1);
+    } finally {
+        $registration->close();
+    }
+}
+
+exit(new ConsoleRuntime($errors)->run(
+    static function () use ($composerLock, $errors): \Contempt\Contracts\Runtime\Runtime {
+        $configuration = require dirname(__DIR__) . '/config/runtime.php';
+
+        if (!$configuration instanceof RuntimeConfiguration) {
+            throw new LogicException('config/runtime.php must return RuntimeConfiguration.');
+        }
+
+        return new CompiledRuntimeLoader(
+            dirname(__DIR__) . '/var/contempt/build',
+            $configuration->environment,
+            composerLockPath: $composerLock,
+        )->load(runtimeServices: [
+            ConfigurationProvider::class => $configuration->provider,
+            ErrorReporter::class => $errors,
+        ]);
+    },
+    new ArgvInput(),
+    new ConsoleOutput(),
+));
